@@ -26,8 +26,6 @@ namespace KCPTransportLayer
         private Socket serverSocket;
         private readonly Dictionary<long, IPEndPoint> peerEndpointsById;
         private readonly Dictionary<IPEndPoint, long> peerIdsByEndpoint;
-        private readonly Queue<TransportEventData> clientEventQueue;
-        private readonly Queue<TransportEventData> serverEventQueue;
         private EndPoint tempPeerEndPoint = new IPEndPoint(IPAddress.Any, 0);
         private IPEndPoint tempCastedPeerEndPoint;
         private readonly byte[] clientReceiveBuffer = new byte[1024 * 32];
@@ -38,8 +36,6 @@ namespace KCPTransportLayer
         {
             peerEndpointsById = new Dictionary<long, IPEndPoint>();
             peerIdsByEndpoint = new Dictionary<IPEndPoint, long>();
-            clientEventQueue = new Queue<TransportEventData>();
-            serverEventQueue = new Queue<TransportEventData>();
         }
 
         private Kcp CreateKcp(KCPSetting setting, IKcpCallback callback)
