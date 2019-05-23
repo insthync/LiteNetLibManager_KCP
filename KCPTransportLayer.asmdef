@@ -1,0 +1,11 @@
+{
+    "name": "KCPTransportLayer",
+    "references": [
+        "LiteNetLibManagerEditor",
+        "LiteNetLibManager"
+    ],
+    "optionalUnityReferences": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true
+}
