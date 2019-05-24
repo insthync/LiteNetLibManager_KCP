@@ -22,17 +22,12 @@ namespace KCPTransportLayer
         private KCPPeer serverPeer;
         private readonly Dictionary<long, IPEndPoint> peerEndpointsById;
         private readonly Dictionary<IPEndPoint, long> peerIdsByEndpoint;
-        private readonly Queue<TransportEventData> clientEventQueue;
-        private readonly Queue<TransportEventData> serverEventQueue;
-        private IPEndPoint tempCastedPeerEndPoint;
         private long connectionIdCounter = 0;
 
         public KCPTransport()
         {
             peerEndpointsById = new Dictionary<long, IPEndPoint>();
             peerIdsByEndpoint = new Dictionary<IPEndPoint, long>();
-            clientEventQueue = new Queue<TransportEventData>();
-            serverEventQueue = new Queue<TransportEventData>();
         }
         
         public bool ClientReceive(out TransportEventData eventData)
@@ -44,10 +39,17 @@ namespace KCPTransportLayer
             clientPeer.Update(DateTime.UtcNow);
             clientPeer.Recv();
 
-            if (clientEventQueue.Count == 0)
+            if (clientPeer.eventQueue.Count == 0)
                 return false;
 
-            eventData = clientEventQueue.Dequeue();
+            eventData = clientPeer.eventQueue.Dequeue();
+            switch (eventData.type)
+            {
+                case ENetworkEvent.DisconnectEvent:
+                    // Disconnect from server
+                    StopClient();
+                    break;
+            }
 
             return true;
         }
@@ -56,7 +58,7 @@ namespace KCPTransportLayer
         {
             if (IsClientStarted())
             {
-                SendData(clientPeer, writer.Data);
+                clientPeer.SendData(writer.Data);
                 return true;
             }
             return false;
@@ -108,10 +110,36 @@ namespace KCPTransportLayer
             serverPeer.Update(DateTime.UtcNow);
             serverPeer.Recv();
             
-            if (serverEventQueue.Count == 0)
+            if (serverPeer.eventQueue.Count == 0)
                 return false;
 
-            eventData = serverEventQueue.Dequeue();
+            eventData = serverPeer.eventQueue.Dequeue();
+            switch (eventData.type)
+            {
+                case ENetworkEvent.ConnectEvent:
+                    if (!peerIdsByEndpoint.ContainsKey(eventData.endPoint))
+                    {
+                        long newConnectionId = ++connectionIdCounter;
+                        peerIdsByEndpoint[eventData.endPoint] = newConnectionId;
+                        peerEndpointsById[newConnectionId] = eventData.endPoint;
+                        // Set event data
+                        eventData.connectionId = newConnectionId;
+                    }
+                    break;
+                case ENetworkEvent.DataEvent:
+                    eventData.connectionId = peerIdsByEndpoint[eventData.endPoint];
+                    break;
+                case ENetworkEvent.DisconnectEvent:
+                    if (peerIdsByEndpoint.ContainsKey(eventData.endPoint))
+                    {
+                        // Set event data
+                        eventData.connectionId = peerIdsByEndpoint[eventData.endPoint];
+                        // Remove from dictionaries
+                        peerEndpointsById.Remove(eventData.connectionId);
+                        peerIdsByEndpoint.Remove(eventData.endPoint);
+                    }
+                    break;
+            }
 
             return true;
         }
@@ -121,7 +149,7 @@ namespace KCPTransportLayer
             if (IsServerStarted() && peerEndpointsById.ContainsKey(connectionId))
             {
                 serverPeer.remoteEndPoint = peerEndpointsById[connectionId];
-                SendData(serverPeer, writer.Data);
+                serverPeer.SendData(writer.Data);
                 return true;
             }
             return false;
@@ -129,89 +157,17 @@ namespace KCPTransportLayer
 
         public bool StartClient(string connectKey, string address, int port)
         {
-            clientPeer = new KCPPeer("CLIENT", iconv, clientSetting, OnClientReceive);
+            clientPeer = new KCPPeer("CLIENT", iconv, clientSetting);
             clientPeer.Start();
             return clientPeer.Connect(address, port);
-        }
-
-        private void OnClientReceive(byte[] buffer, int length, EndPoint endPoint)
-        {
-            if (length <= 0)
-                return;
-
-            tempCastedPeerEndPoint = (IPEndPoint)endPoint;
-            TransportEventData eventData = default(TransportEventData);
-            eventData.type = (ENetworkEvent)buffer[0];
-            switch (eventData.type)
-            {
-                case ENetworkEvent.DataEvent:
-                    // Read data
-                    byte[] data = new byte[length - 1];
-                    Buffer.BlockCopy(buffer, 1, data, 0, length - 1);
-                    eventData.reader = new NetDataReader(data);
-                    clientEventQueue.Enqueue(eventData);
-                    break;
-                case ENetworkEvent.DisconnectEvent:
-                    // Disconnect from server
-                    StopClient();
-                    clientEventQueue.Enqueue(eventData);
-                    break;
-            }
         }
 
         public bool StartServer(string connectKey, int port, int maxConnections)
         {
             connectionIdCounter = 0;
-            serverPeer = new KCPPeer("SERVER", iconv, serverSetting, OnServerReceive);
+            serverPeer = new KCPPeer("SERVER", iconv, serverSetting);
             serverPeer.Start(port);
             return true;
-        }
-
-        private void OnServerReceive(byte[] buffer, int length, EndPoint endPoint)
-        {
-            if (length <= 0)
-                return;
-
-            tempCastedPeerEndPoint = (IPEndPoint)endPoint;
-            TransportEventData eventData = default(TransportEventData);
-            eventData.type = (ENetworkEvent)buffer[0];
-            switch (eventData.type)
-            {
-                case ENetworkEvent.ConnectEvent:
-                    if (!peerIdsByEndpoint.ContainsKey(tempCastedPeerEndPoint))
-                    {
-                        long newConnectionId = ++connectionIdCounter;
-                        peerIdsByEndpoint[tempCastedPeerEndPoint] = newConnectionId;
-                        peerEndpointsById[newConnectionId] = tempCastedPeerEndPoint;
-                        // Set event data
-                        eventData.connectionId = newConnectionId;
-                        eventData.endPoint = tempCastedPeerEndPoint;
-                        serverEventQueue.Enqueue(eventData);
-                    }
-                    break;
-                case ENetworkEvent.DataEvent:
-                    // Read data
-                    byte[] data = new byte[length - 1];
-                    Buffer.BlockCopy(buffer, 1, data, 0, length - 1);
-                    eventData.reader = new NetDataReader(data);
-                    eventData.connectionId = peerIdsByEndpoint[tempCastedPeerEndPoint];
-                    eventData.endPoint = tempCastedPeerEndPoint;
-                    serverEventQueue.Enqueue(eventData);
-                    break;
-                case ENetworkEvent.DisconnectEvent:
-                    if (peerIdsByEndpoint.ContainsKey(tempCastedPeerEndPoint))
-                    {
-                        long connectionId = peerIdsByEndpoint[tempCastedPeerEndPoint];
-                        // Set event data
-                        eventData.connectionId = connectionId;
-                        eventData.endPoint = tempCastedPeerEndPoint;
-                        // Remove from dictionaries
-                        peerEndpointsById.Remove(connectionId);
-                        peerIdsByEndpoint.Remove(tempCastedPeerEndPoint);
-                        serverEventQueue.Enqueue(eventData);
-                    }
-                    break;
-            }
         }
 
         public void StopClient()
@@ -230,14 +186,6 @@ namespace KCPTransportLayer
                 serverPeer.Stop();
                 serverPeer = null;
             }
-        }
-
-        private void SendData(KCPPeer peer, byte[] sendingData)
-        {
-            byte[] sendBuffer = new byte[1 + sendingData.Length];
-            sendBuffer[0] = (byte)ENetworkEvent.DataEvent;
-            Buffer.BlockCopy(sendingData, 0, sendBuffer, 1, sendingData.Length);
-            peer.Send(sendBuffer);
         }
     }
 }
