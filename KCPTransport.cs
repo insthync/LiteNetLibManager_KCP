@@ -49,6 +49,10 @@ namespace KCPTransportLayer
                     // Disconnect from server
                     StopClient();
                     break;
+                case ENetworkEvent.ErrorEvent:
+                    // Disconnect from server
+                    StopClient();
+                    break;
             }
 
             return true;
