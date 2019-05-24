@@ -9,10 +9,10 @@ namespace KCPTransportLayer
         public uint iconv;
         public KCPSetting clientSetting = new KCPSetting()
         {
-            enableNoDelay = false,
-            interval = 100,
-            enableFastResend = false,
-            disableCongestionControl = false,
+            noDelay = 0,
+            interval = 30,
+            resend = 2,
+            nc = 1,
             sendWindowSize = 32,
             receiveWindowSize = 32,
             mtu = 1400,
@@ -20,10 +20,10 @@ namespace KCPTransportLayer
 
         public KCPSetting serverSetting = new KCPSetting()
         {
-            enableNoDelay = false,
-            interval = 100,
-            enableFastResend = false,
-            disableCongestionControl = false,
+            noDelay = 0,
+            interval = 30,
+            resend = 2,
+            nc = 1,
             sendWindowSize = 32,
             receiveWindowSize = 32,
             mtu = 1400,
