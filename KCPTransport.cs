@@ -186,7 +186,8 @@ namespace KCPTransportLayer
         {
             if (serverPeer != null)
             {
-                foreach (long connectionId in peerIdsByEndpoint.Values)
+                List<long> connectionIds = new List<long>(peerIdsByEndpoint.Values);
+                foreach (long connectionId in connectionIds)
                 {
                     ServerDisconnect(connectionId);
                 }
