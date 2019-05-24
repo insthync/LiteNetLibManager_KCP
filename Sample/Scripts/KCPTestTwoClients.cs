@@ -61,7 +61,6 @@ public class KCPTestTwoClients : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
-        Debug.Log("Update");
         TransportEventData tempEventData;
         while (server1.ServerReceive(out tempEventData))
         {

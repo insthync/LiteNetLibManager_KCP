@@ -147,7 +147,7 @@ MonoBehaviour:
     noDelay: 0
     interval: 20
     resend: 2
-    nc: 1
+    noCongestion: 1
     sendWindowSize: 64
     receiveWindowSize: 64
     mtu: 1400
@@ -155,7 +155,7 @@ MonoBehaviour:
     noDelay: 0
     interval: 20
     resend: 2
-    nc: 1
+    noCongestion: 1
     sendWindowSize: 64
     receiveWindowSize: 64
     mtu: 1400
