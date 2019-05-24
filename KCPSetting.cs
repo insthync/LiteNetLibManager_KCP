@@ -5,9 +5,6 @@ namespace KCPTransportLayer
     [System.Serializable]
     public struct KCPSetting
     {
-        [Tooltip("Iconv")]
-        public uint iconv;
-
         [Tooltip("No delay")]
         public bool enableNoDelay;
         [Tooltip("Internal update timer interval in millisec, default is 100ms")]

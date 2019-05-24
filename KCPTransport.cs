@@ -16,6 +16,7 @@ namespace KCPTransportLayer
 {
     public class KCPTransport : ITransport
     {
+        public uint iconv;
         public KCPSetting clientSetting;
         public KCPSetting serverSetting;
         private KCPClientHandle clientHandle;
@@ -40,7 +41,7 @@ namespace KCPTransportLayer
 
         private Kcp CreateKcp(KCPSetting setting, IKcpCallback callback)
         {
-            Kcp kcp = new Kcp(setting.iconv, callback);
+            Kcp kcp = new Kcp(iconv, callback);
             kcp.NoDelay(setting.GetNoDelay(), setting.interval, setting.GetFastResend(), setting.GetCongestionControl());
             kcp.WndSize(setting.sendWindowSize, setting.receiveWindowSize);
             kcp.SetMtu(setting.mtu);
