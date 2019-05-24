@@ -12,11 +12,12 @@ namespace KCPTransportLayer
 {
     public class KCPPeer : IKcpCallback
     {
+        public const int MaxPacketSize = 1024 * 1024;
         public string tag { get; private set; }
         public IPEndPoint remoteEndPoint { get; set; }
         private Socket socket;
         private Kcp kcp;
-        private byte[] recvBuffer = new byte[1024 * 32];
+        private byte[] recvBuffer = new byte[MaxPacketSize];
         public Queue<TransportEventData> eventQueue { get; private set; }
 
         public KCPPeer(string tag, uint iconv, KCPSetting setting)
@@ -55,6 +56,35 @@ namespace KCPTransportLayer
 
         public void Start(int port)
         {
+            socket.ReceiveTimeout = 500;
+            socket.SendTimeout = 500;
+            // Socket buffer size
+            socket.ReceiveBufferSize = MaxPacketSize;
+            socket.SendBufferSize = MaxPacketSize;
+
+            try
+            {
+                socket.ExclusiveAddressUse = false;
+                socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+            }
+            catch
+            {
+                //Unity with IL2CPP throws an exception here, it doesn't matter in most cases so just ignore it
+            }
+
+            socket.Ttl = 255;
+            try { socket.DontFragment = true; }
+            catch (SocketException e)
+            {
+                UnityEngine.Debug.LogException(e);
+            }
+
+            try { socket.EnableBroadcast = true; }
+            catch (SocketException e)
+            {
+                UnityEngine.Debug.LogException(e);
+            }
+
             socket.Bind(new IPEndPoint(IPAddress.Any, port));
         }
 
@@ -77,7 +107,7 @@ namespace KCPTransportLayer
 
             if (indexOfAddress < 0)
                 return false;
-            
+
             return Connect(new IPEndPoint(ipAddresses[indexOfAddress], port));
         }
 
@@ -126,19 +156,45 @@ namespace KCPTransportLayer
             if (socket == null)
                 return;
 
-            if (!socket.Poll(0, SelectMode.SelectRead))
-            {
-                return;
-            }
-
+            TransportEventData eventData;
             EndPoint endPoint = new IPEndPoint(IPAddress.Any, 0);
             int recvLength;
-            recvLength = socket.ReceiveFrom(recvBuffer, ref endPoint);
+            try
+            {
+                if (!socket.Poll(0, SelectMode.SelectRead))
+                    return;
+
+                recvLength = socket.ReceiveFrom(recvBuffer, 0, recvBuffer.Length, SocketFlags.None, ref endPoint);
+            }
+            catch (SocketException ex)
+            {
+                switch (ex.SocketErrorCode)
+                {
+                    case SocketError.Interrupted:
+                    case SocketError.NotSocket:
+                        return;
+                    case SocketError.ConnectionReset:
+                    case SocketError.MessageSize:
+                    case SocketError.TimedOut:
+                        UnityEngine.Debug.LogErrorFormat("[R]Ignored error: {0} - {1}",
+                            (int)ex.SocketErrorCode, ex.ToString());
+                        break;
+                    default:
+                        UnityEngine.Debug.LogErrorFormat("[R]Error code: {0} - {1}", (int)ex.SocketErrorCode,
+                            ex.ToString());
+                        eventData = default(TransportEventData);
+                        eventData.type = ENetworkEvent.ErrorEvent;
+                        eventData.endPoint = (IPEndPoint)endPoint;
+                        eventData.socketError = ex.SocketErrorCode;
+                        eventQueue.Enqueue(eventData);
+                        break;
+                }
+                return;
+            }
 
             kcp.Input(new Span<byte>(recvBuffer, 0, recvLength));
 
             byte[] kcpData;
-            TransportEventData eventData;
             while ((recvLength = kcp.PeekSize()) > 0)
             {
                 kcpData = new byte[recvLength];
