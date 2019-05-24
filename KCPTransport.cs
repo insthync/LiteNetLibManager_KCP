@@ -92,7 +92,7 @@ namespace KCPTransportLayer
                 IPEndPoint endPoint = peerEndpointsById[connectionId];
                 // Send to target peer
                 serverPeer.remoteEndPoint = endPoint;
-                serverPeer.Send(new byte[] { (byte)ENetworkEvent.DisconnectEvent });
+                serverPeer.SendDisconnect();
                 // Remove from dictionaries
                 peerIdsByEndpoint.Remove(endPoint);
                 peerEndpointsById.Remove(connectionId);
@@ -165,6 +165,8 @@ namespace KCPTransportLayer
         public bool StartServer(string connectKey, int port, int maxConnections)
         {
             connectionIdCounter = 0;
+            peerEndpointsById.Clear();
+            peerIdsByEndpoint.Clear();
             serverPeer = new KCPPeer("SERVER", iconv, serverSetting);
             serverPeer.Start(port);
             return true;
@@ -174,6 +176,7 @@ namespace KCPTransportLayer
         {
             if (clientPeer != null)
             {
+                clientPeer.SendDisconnect();
                 clientPeer.Stop();
                 clientPeer = null;
             }
@@ -183,9 +186,15 @@ namespace KCPTransportLayer
         {
             if (serverPeer != null)
             {
+                foreach (long connectionId in peerIdsByEndpoint.Values)
+                {
+                    ServerDisconnect(connectionId);
+                }
                 serverPeer.Stop();
                 serverPeer = null;
             }
+            peerEndpointsById.Clear();
+            peerIdsByEndpoint.Clear();
         }
     }
 }
