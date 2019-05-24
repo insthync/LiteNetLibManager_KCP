@@ -12,7 +12,7 @@ namespace KCPTransportLayer
         [Tooltip("Resend: 0:disable fast resend(default), 1:enable fast resend")]
         public int resend;
         [Tooltip("NC: 0:normal congestion control(default), 1:disable congestion control")]
-        public int nc;
+        public int noCongestion;
 
         [Tooltip("Maximum send window size, default is 32")]
         public int sendWindowSize;

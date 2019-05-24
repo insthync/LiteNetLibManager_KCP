@@ -25,7 +25,7 @@ namespace KCPTransportLayer
             this.tag = tag;
             socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
             kcp = new Kcp(iconv, this);
-            kcp.NoDelay(setting.noDelay, setting.interval, setting.resend, setting.nc);
+            kcp.NoDelay(setting.noDelay, setting.interval, setting.resend, setting.noCongestion);
             kcp.WndSize(setting.sendWindowSize, setting.receiveWindowSize);
             kcp.SetMtu(setting.mtu);
             eventQueue = new Queue<TransportEventData>();
