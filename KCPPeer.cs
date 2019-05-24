@@ -12,16 +12,16 @@ namespace KCPTransportLayer
     public class KCPPeer : IKcpCallback
     {
         public string tag { get; private set; }
-        public long connectionId { get; private set; }
         public IPEndPoint remoteEndPoint { get; set; }
         private Socket socket;
         private Kcp kcp;
         private byte[] recvBuffer = new byte[1024 * 32];
+        private Action<byte[], int, EndPoint> onReceive;
 
-        public KCPPeer(string tag, uint iconv, KCPSetting setting, long connectionId)
+        public KCPPeer(string tag, uint iconv, KCPSetting setting, Action<byte[], int, EndPoint> onReceive)
         {
             this.tag = tag;
-            this.connectionId = connectionId;
+            this.onReceive = onReceive;
             socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
             kcp = new Kcp(iconv, this);
             kcp.NoDelay(setting.noDelay, setting.interval, setting.resend, setting.nc);
@@ -100,30 +100,31 @@ namespace KCPTransportLayer
             return kcp.Send(data);
         }
 
-        public int Recv(ref byte[] data, ref EndPoint endPoint)
+        public void Recv()
         {
             if (socket == null)
-                return -1;
+                return;
 
             if (!socket.Poll(0, SelectMode.SelectRead))
             {
-                return 0;
+                return;
             }
 
+            EndPoint endPoint = new IPEndPoint(IPAddress.Any, 0);
             int recvLength;
             recvLength = socket.ReceiveFrom(recvBuffer, ref endPoint);
 
             kcp.Input(new Span<byte>(recvBuffer, 0, recvLength));
 
+            byte[] data;
             while ((recvLength = kcp.PeekSize()) > 0)
             {
                 data = new byte[recvLength];
                 if (kcp.Recv(data) >= 0)
                 {
-                    return recvLength;
+                    onReceive(data, recvLength, endPoint);
                 }
             }
-            return 0;
         }
 
         public void Output(IMemoryOwner<byte> buffer, int avalidLength)
