@@ -7,6 +7,8 @@ using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 using System.Net.Sockets.Kcp;
+using System.Threading;
+using UnityEngine;
 
 namespace KCPTransportLayer
 {
@@ -23,8 +25,11 @@ namespace KCPTransportLayer
         private Socket connectSocket;
         private Socket dataSocket;
         private byte[] recvBuffer = new byte[MaxPacketSize];
-        private readonly List<KCPHandle> updatingKcps = new List<KCPHandle>();
         private uint clientConnId;
+        private Thread updateThread;
+        private Thread acceptThread;
+        private bool updating;
+        private bool accepting;
         public Queue<TransportEventData> eventQueue { get; private set; }
         public Dictionary<long, Socket> connections { get; private set; }
         public Dictionary<long, KCPHandle> kcpHandles { get; private set; }
@@ -50,6 +55,9 @@ namespace KCPTransportLayer
 
         public void Stop()
         {
+            updating = false;
+            accepting = false;
+
             if (dataSocket != null)
             {
                 dataSocket.Close();
@@ -64,6 +72,20 @@ namespace KCPTransportLayer
                 connectSocket.Close();
                 connectSocket.Dispose();
                 connectSocket = null;
+            }
+
+            if (updateThread != null)
+            {
+                updateThread.Abort();
+                updateThread.Join();
+                updateThread = null;
+            }
+
+            if (acceptThread != null)
+            {
+                acceptThread.Abort();
+                acceptThread.Join();
+                acceptThread = null;
             }
 
             eventQueue.Clear();
@@ -103,12 +125,141 @@ namespace KCPTransportLayer
             {
                 connectSocket.Bind(new IPEndPoint(IPAddress.Any, port));
                 connectSocket.Listen(100);
-                connectSocket.BeginAccept(AcceptCallback, this);
+
+                accepting = true;
+                acceptThread = new Thread(AcceptThreadFunction);
+                acceptThread.IsBackground = true;
+                acceptThread.Start();
             }
 
             // UDP socket always bind to any port
             SetupDataSocket();
             dataSocket.Bind(new IPEndPoint(IPAddress.Any, port));
+
+            if (updateThread != null)
+            {
+                updateThread.Abort();
+                updateThread = null;
+            }
+
+            updating = true;
+            updateThread = new Thread(UpdateThreadFunction);
+            updateThread.IsBackground = true;
+            updateThread.Start();
+        }
+
+        private void AcceptThreadFunction()
+        {
+            try
+            {
+                Socket newClientSocket;
+                uint newConnectionId;
+                KCPHandle newKcpHandle;
+                TransportEventData eventData;
+                SocketError socketError;
+                while (accepting)
+                {
+                    // Get the socket that handles the client request.
+                    newClientSocket = connectSocket.Accept();
+
+                    // Create new kcp for this client
+                    newConnectionId = ConnIdCounter++;
+                    newKcpHandle = CreateKcp(newConnectionId, serverSetting);
+
+                    // Store kcp, socket to dictionaries
+                    connections[newConnectionId] = newClientSocket;
+                    kcpHandles[newConnectionId] = newKcpHandle;
+
+                    // Store network event to queue
+                    eventData = default(TransportEventData);
+                    eventData.type = ENetworkEvent.ConnectEvent;
+                    eventData.connectionId = newConnectionId;
+                    eventData.endPoint = (IPEndPoint)newClientSocket.RemoteEndPoint;
+                    eventQueue.Enqueue(eventData);
+
+                    // Prepare connected message to send to client
+                    acceptWriter.Reset();
+                    acceptWriter.Put((byte)ENetworkEvent.ConnectEvent);
+                    acceptWriter.Put(newConnectionId);
+                    acceptWriter.Put(((IPEndPoint)dataSocket.LocalEndPoint).Port);
+
+                    // Send connected message to client
+                    if (newClientSocket.Send(acceptWriter.Data, 0, acceptWriter.Length, SocketFlags.None, out socketError) < 0)
+                    {
+                        // Error occurs
+                        HandleError(newClientSocket.RemoteEndPoint, socketError);
+                    }
+
+                    Thread.Sleep(20);
+                }
+            }
+            catch (ThreadAbortException)
+            {
+                // Happen when abort, do nothing
+            }
+            catch (Exception e)
+            {
+                // Another exception
+                Debug.LogException(e);
+            }
+        }
+
+        private void UpdateThreadFunction()
+        {
+
+            try
+            {
+                DateTime time;
+                List<KCPHandle> updatingKcps = new List<KCPHandle>();
+                List<long> connectionIds = new List<long>();
+                TransportEventData eventData;
+                while (updating)
+                {
+                    time = DateTime.UtcNow;
+                    if (kcpHandles != null && kcpHandles.Count > 0)
+                    {
+                        updatingKcps.Clear();
+                        updatingKcps.AddRange(kcpHandles.Values);
+                        foreach (KCPHandle updatingKcp in updatingKcps)
+                        {
+                            updatingKcp.kcp.Update(time);
+                        }
+                    }
+                    Thread.Sleep(20);
+                    // Check disconnected connections
+                    if (connections != null && connections.Count > 0)
+                    {
+                        connectionIds.Clear();
+                        connectionIds.AddRange(connections.Keys);
+                        foreach (long connectionId in connectionIds)
+                        {
+                            if (connections[connectionId].Connected &&
+                                IsSocketConnected(connections[connectionId]))
+                                continue;
+                            connections[connectionId].Close();
+                            connections[connectionId].Dispose();
+                            kcpHandles[connectionId].Dispose();
+                            connections.Remove(connectionId);
+                            kcpHandles.Remove(connectionId);
+                            // This event must enqueue at server only
+                            eventData = default(TransportEventData);
+                            eventData.type = ENetworkEvent.DisconnectEvent;
+                            eventData.connectionId = connectionId;
+                            eventQueue.Enqueue(eventData);
+                        }
+                    }
+                    Thread.Sleep(20);
+                }
+            }
+            catch (ThreadAbortException)
+            {
+                // Happen when abort, do nothing
+            }
+            catch (Exception e)
+            {
+                // Another exception
+                Debug.LogException(e);
+            }
         }
 
         private void SetupConnectSocket()
@@ -141,58 +292,13 @@ namespace KCPTransportLayer
             try { dataSocket.DontFragment = true; }
             catch (SocketException e)
             {
-                UnityEngine.Debug.LogException(e);
+                Debug.LogException(e);
             }
 
             try { dataSocket.EnableBroadcast = true; }
             catch (SocketException e)
             {
-                UnityEngine.Debug.LogException(e);
-            }
-        }
-        
-        private void AcceptCallback(IAsyncResult result)
-        {
-            // Get the socket that handles the client request.
-            Socket newClient = connectSocket.EndAccept(result);
-
-            // Create new kcp for this client
-            uint connectionId = ConnIdCounter++;
-            KCPHandle kcpHandle = CreateKcp(connectionId, serverSetting);
-
-            // Store kcp, socket to dictionaries
-            connections[connectionId] = newClient;
-            kcpHandles[connectionId] = kcpHandle;
-
-            // Store network event to queue
-            TransportEventData eventData = default(TransportEventData);
-            eventData.type = ENetworkEvent.ConnectEvent;
-            eventData.connectionId = connectionId;
-            eventData.endPoint = (IPEndPoint)newClient.RemoteEndPoint;
-            eventQueue.Enqueue(eventData);
-
-            // Send connection data to client
-            acceptWriter.Reset();
-            acceptWriter.Put((byte)ENetworkEvent.ConnectEvent);
-            acceptWriter.Put(connectionId);
-            acceptWriter.Put(((IPEndPoint)dataSocket.LocalEndPoint).Port);
-            newClient.BeginSend(acceptWriter.Data, 0, acceptWriter.Length, SocketFlags.None, SendConnectedCallback, newClient);
-            
-            if (connectSocket != null)
-            {
-                // Try to accept again.
-                connectSocket.BeginAccept(AcceptCallback, this);
-            }
-        }
-
-        private void SendConnectedCallback(IAsyncResult result)
-        {
-            SocketError error;
-            if (connectSocket.EndSend(result, out error) < 0)
-            {
-                Socket socket = (Socket)result.AsyncState;
-                // Error occurs
-                HandleError(socket.RemoteEndPoint, error);
+                Debug.LogException(e);
             }
         }
 
@@ -227,20 +333,6 @@ namespace KCPTransportLayer
             
             connectSocket.Connect(remoteEndPoint);
             return connectSocket.Connected;
-        }
-
-        public void Update(DateTime time)
-        {
-            if (kcpHandles == null || kcpHandles.Count == 0)
-                return;
-
-            // TODO: May update async
-            updatingKcps.Clear();
-            updatingKcps.AddRange(kcpHandles.Values);
-            foreach (KCPHandle updatingKcp in updatingKcps)
-            {
-                updatingKcp.kcp.Update(time);
-            }
         }
 
         public int SendData(byte[] sendingData, int length)
@@ -392,6 +484,15 @@ namespace KCPTransportLayer
                     eventQueue.Enqueue(eventData);
                     break;
             }
+        }
+
+        public bool IsSocketConnected(Socket socket)
+        {
+            try
+            {
+                return !(socket.Poll(1, SelectMode.SelectRead) && socket.Available == 0);
+            }
+            catch (SocketException) { return false; }
         }
     }
 }

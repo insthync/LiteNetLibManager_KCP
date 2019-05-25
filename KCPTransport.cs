@@ -32,7 +32,6 @@ namespace KCPTransportLayer
             if (clientPeer == null)
                 return false;
 
-            clientPeer.Update(DateTime.UtcNow);
             clientPeer.Recv();
 
             if (clientPeer.eventQueue.Count == 0)
@@ -103,7 +102,6 @@ namespace KCPTransportLayer
             if (serverPeer == null)
                 return false;
 
-            serverPeer.Update(DateTime.UtcNow);
             serverPeer.Recv();
             
             if (serverPeer.eventQueue.Count == 0)

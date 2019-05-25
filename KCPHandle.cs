@@ -19,6 +19,11 @@ public class KCPHandle : IKcpCallback
         this.dataSocket = dataSocket;
     }
 
+    public void Dispose()
+    {
+        kcp.Dispose();
+    }
+
     public void Output(IMemoryOwner<byte> buffer, int avalidLength)
     {
         if (dataSocket != null && remoteEndPoint != null)
