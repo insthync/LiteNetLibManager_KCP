@@ -5,8 +5,7 @@ namespace KCPTransportLayer
     public class KCPTransportFactory : BaseTransportFactory
     {
         public override bool CanUseWithWebGL { get { return false; } }
-
-        public uint iconv;
+        
         public KCPSetting clientSetting = new KCPSetting()
         {
             noDelay = 0,
@@ -33,7 +32,6 @@ namespace KCPTransportLayer
         {
             return new KCPTransport()
             {
-                iconv = iconv,
                 clientSetting = clientSetting,
                 serverSetting = serverSetting
             };
