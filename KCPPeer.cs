@@ -126,6 +126,13 @@ namespace KCPTransportLayer
                 connectSocket.Bind(new IPEndPoint(IPAddress.Any, port));
                 connectSocket.Listen(100);
 
+                if (acceptThread != null)
+                {
+                    acceptThread.Abort();
+                    acceptThread.Join();
+                    acceptThread = null;
+                }
+
                 accepting = true;
                 acceptThread = new Thread(AcceptThreadFunction);
                 acceptThread.IsBackground = true;
@@ -134,11 +141,12 @@ namespace KCPTransportLayer
 
             // UDP socket always bind to any port
             SetupDataSocket();
-            dataSocket.Bind(new IPEndPoint(IPAddress.Any, port));
+            dataSocket.Bind(new IPEndPoint(IPAddress.Any, 0));
 
             if (updateThread != null)
             {
                 updateThread.Abort();
+                updateThread.Join();
                 updateThread = null;
             }
 
@@ -179,8 +187,11 @@ namespace KCPTransportLayer
 
                     // Prepare connected message to send to client
                     acceptWriter.Reset();
+                    // Event
                     acceptWriter.Put((byte)ENetworkEvent.ConnectEvent);
+                    // ConnectionId (KCP conv)
                     acceptWriter.Put(newConnectionId);
+                    // Data Socket (UDP) port
                     acceptWriter.Put(((IPEndPoint)dataSocket.LocalEndPoint).Port);
 
                     // Send connected message to client
@@ -206,7 +217,6 @@ namespace KCPTransportLayer
 
         private void UpdateThreadFunction()
         {
-
             try
             {
                 DateTime time;
