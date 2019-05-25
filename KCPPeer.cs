@@ -241,20 +241,36 @@ namespace KCPTransportLayer
             {
                 updatingKcp.kcp.Update(time);
             }
+            // Check disconnected connections
+            if (connections != null && connections.Count > 0)
+            {
+                List<long> connectionIds = new List<long>(connections.Keys);
+                foreach (long connectionId in connectionIds)
+                {
+                    if (connections[connectionId].Connected) continue;
+                    connections.Remove(connectionId);
+                    kcpHandles.Remove(connectionId);
+                    // This event must enqueue at server only
+                    TransportEventData eventData = default(TransportEventData);
+                    eventData.type = ENetworkEvent.DisconnectEvent;
+                    eventData.connectionId = connectionId;
+                    eventQueue.Enqueue(eventData);
+                }
+            }
         }
 
-        public int SendData(byte[] sendingData)
+        public int SendData(byte[] sendingData, int length)
         {
             if (connectSocket == null || !connectSocket.Connected)
                 return -1;
-            return SendData(clientConnId, sendingData);
+            return SendData(clientConnId, sendingData, length);
         }
 
-        public int SendData(long connectionId, byte[] sendingData)
+        public int SendData(long connectionId, byte[] sendingData, int length)
         {
-            byte[] sendBuffer = new byte[1 + sendingData.Length];
+            byte[] sendBuffer = new byte[1 + length];
             sendBuffer[0] = (byte)ENetworkEvent.DataEvent;
-            Buffer.BlockCopy(sendingData, 0, sendBuffer, 1, sendingData.Length);
+            Buffer.BlockCopy(sendingData, 0, sendBuffer, 1, length);
             return Send(connectionId, sendBuffer);
         }
 

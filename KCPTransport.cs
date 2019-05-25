@@ -58,7 +58,7 @@ namespace KCPTransportLayer
         {
             if (IsClientStarted())
             {
-                clientPeer.SendData(writer.Data);
+                clientPeer.SendData(writer.Data, writer.Length);
                 return true;
             }
             return false;
@@ -118,7 +118,7 @@ namespace KCPTransportLayer
         {
             if (IsServerStarted())
             {
-                serverPeer.SendData(connectionId, writer.Data);
+                serverPeer.SendData(connectionId, writer.Data, writer.Length);
                 return true;
             }
             return false;
