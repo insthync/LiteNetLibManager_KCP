@@ -23,37 +23,33 @@ public class KCPTestTwoClients : MonoBehaviour
     // Use this for initialization
     void Start()
     {
+        StartCoroutine(StartRoutine());
+    }
+
+    IEnumerator StartRoutine()
+    {
         server1 = new KCPTransport()
         {
-            iconv = iconv,
             serverSetting = serverSetting,
             clientSetting = clientSetting,
         };
         server1.StartServer(string.Empty, 5555, 100);    // Max connections not affect anything for now
-
-        server2 = new KCPTransport()
-        {
-            iconv = iconv,
-            serverSetting = serverSetting,
-            clientSetting = clientSetting,
-        };
-        server2.StartServer(string.Empty, 5556, 100);    // Max connections not affect anything for now
-
+        yield return 0;
         client1 = new KCPTransport()
         {
-            iconv = iconv,
             serverSetting = serverSetting,
             clientSetting = clientSetting,
         };
-        client1.StartClient(string.Empty, "127.0.0.1", 5555);
-
+        if (!client1.StartClient(string.Empty, "127.0.0.1", 5555))
+            Debug.LogError("`client1` Cannot connect to server");
+        yield return 0;
         client2 = new KCPTransport()
         {
-            iconv = iconv,
             serverSetting = serverSetting,
             clientSetting = clientSetting,
         };
-        client2.StartClient(string.Empty, "127.0.0.1", 5556);
+        if (!client2.StartClient(string.Empty, "127.0.0.1", 5555))
+            Debug.LogError("`client2` Cannot connect to server");
     }
 
     int clientSendCount1 = 0;
@@ -61,6 +57,9 @@ public class KCPTestTwoClients : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
+        if (server1 == null || client1 == null || client2 == null)
+            return;
+
         TransportEventData tempEventData;
         while (server1.ServerReceive(out tempEventData))
         {
@@ -70,15 +69,6 @@ public class KCPTestTwoClients : MonoBehaviour
             writer.Reset();
             writer.Put(data.ToLower());
             server1.ServerSend(tempEventData.connectionId, LiteNetLib.DeliveryMethod.ReliableOrdered, writer);
-        }
-        while (server2.ServerReceive(out tempEventData))
-        {
-            if (tempEventData.type != ENetworkEvent.DataEvent) continue;
-            string data = tempEventData.reader.GetString();
-            Debug.Log("Server2 receive " + data + " from " + tempEventData.endPoint);
-            writer.Reset();
-            writer.Put(data.ToLower());
-            server2.ServerSend(tempEventData.connectionId, LiteNetLib.DeliveryMethod.ReliableOrdered, writer);
         }
         while (client1.ClientReceive(out tempEventData))
         {
@@ -96,7 +86,7 @@ public class KCPTestTwoClients : MonoBehaviour
         client1.ClientSend(LiteNetLib.DeliveryMethod.ReliableOrdered, writer);
 
         writer.Reset();
-        writer.Put("`SEND FROM CLIENT2 = " + (++clientSendCount1) + "`");
+        writer.Put("`SEND FROM CLIENT2 = " + (++clientSendCount2) + "`");
         client2.ClientSend(LiteNetLib.DeliveryMethod.ReliableOrdered, writer);
     }
 }
