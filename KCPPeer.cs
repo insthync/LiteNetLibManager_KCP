@@ -270,22 +270,6 @@ namespace KCPTransportLayer
         {
             RecvConnection();
             RecvData();
-            // Check disconnected connections
-            if (connections != null && connections.Count > 0)
-            {
-                List<long> connectionIds = new List<long>(connections.Keys);
-                foreach (long connectionId in connectionIds)
-                {
-                    if (connections[connectionId].Connected) continue;
-                    connections.Remove(connectionId);
-                    kcpHandles.Remove(connectionId);
-                    // This event must enqueue at server only
-                    TransportEventData eventData = default(TransportEventData);
-                    eventData.type = ENetworkEvent.DisconnectEvent;
-                    eventData.connectionId = connectionId;
-                    eventQueue.Enqueue(eventData);
-                }
-            }
         }
 
         private void RecvConnection()
