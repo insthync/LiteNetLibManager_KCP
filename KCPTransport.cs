@@ -15,11 +15,6 @@ namespace KCPTransportLayer
         public KCPSetting serverSetting;
         private KCPPeer clientPeer;
         private KCPPeer serverPeer;
-
-        public KCPTransport()
-        {
-
-        }
         
         public bool ClientReceive(out TransportEventData eventData)
         {
@@ -117,14 +112,14 @@ namespace KCPTransportLayer
             return false;
         }
 
-        public bool StartClient(string connectKey, string address, int port)
+        public bool StartClient(string address, int port)
         {
             clientPeer = new KCPPeer("CLIENT", clientSetting, serverSetting);
             clientPeer.Start();
             return clientPeer.Connect(address, port);
         }
 
-        public bool StartServer(string connectKey, int port, int maxConnections)
+        public bool StartServer(int port, int maxConnections)
         {
             serverPeer = new KCPPeer("SERVER", clientSetting, serverSetting);
             serverPeer.Start(port);

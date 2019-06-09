@@ -33,14 +33,14 @@ public class KCPTestTwoClients : MonoBehaviour
             serverSetting = serverSetting,
             clientSetting = clientSetting,
         };
-        server1.StartServer(string.Empty, 5555, 100);    // Max connections not affect anything for now
+        server1.StartServer(5555, 100);    // Max connections not affect anything for now
         yield return 0;
         client1 = new KCPTransport()
         {
             serverSetting = serverSetting,
             clientSetting = clientSetting,
         };
-        if (!client1.StartClient(string.Empty, "127.0.0.1", 5555))
+        if (!client1.StartClient("127.0.0.1", 5555))
             Debug.LogError("`client1` Cannot connect to server");
         yield return 0;
         client2 = new KCPTransport()
@@ -48,7 +48,7 @@ public class KCPTestTwoClients : MonoBehaviour
             serverSetting = serverSetting,
             clientSetting = clientSetting,
         };
-        if (!client2.StartClient(string.Empty, "127.0.0.1", 5555))
+        if (!client2.StartClient("127.0.0.1", 5555))
             Debug.LogError("`client2` Cannot connect to server");
     }
 
