@@ -1,15 +1,10 @@
-﻿using System;
-using System.Buffers;
-using System.Collections;
-using System.Collections.Generic;
+﻿using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
 using System.Net.Sockets.Kcp;
-using LiteNetLib.Utils;
 
 public class KCPHandle : IKcpCallback
 {
-    private static readonly NetDataWriter writer = new NetDataWriter();
     public Kcp kcp { get; private set; }
     public EndPoint remoteEndPoint;
     private Socket dataSocket;

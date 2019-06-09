@@ -321,7 +321,6 @@ namespace KCPTransportLayer
             int indexOfAddress = -1;
             for (int i = 0; i < ipAddresses.Length; ++i)
             {
-                IPAddress ipAddress = ipAddresses[i];
                 if (ipAddresses[i].AddressFamily == AddressFamily.InterNetwork)
                 {
                     indexOfAddress = i;

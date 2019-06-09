@@ -3,10 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Buffers;
 using System.Net;
-using System.Net.Sockets;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using LiteNetLib;
 using LiteNetLib.Utils;
 using LiteNetLibManager;
@@ -19,7 +15,6 @@ namespace KCPTransportLayer
         public KCPSetting serverSetting;
         private KCPPeer clientPeer;
         private KCPPeer serverPeer;
-        private long connectionIdCounter = 0;
 
         public KCPTransport()
         {
@@ -131,7 +126,6 @@ namespace KCPTransportLayer
 
         public bool StartServer(string connectKey, int port, int maxConnections)
         {
-            connectionIdCounter = 0;
             serverPeer = new KCPPeer("SERVER", clientSetting, serverSetting);
             serverPeer.Start(port);
             return true;
