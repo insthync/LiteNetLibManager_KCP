@@ -1,4 +1,5 @@
-﻿using System.Buffers.Binary;
+﻿using System.Buffers;
+using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
@@ -7,20 +8,6 @@ using BufferOwner = System.Buffers.IMemoryOwner<byte>;
 
 namespace System.Net.Sockets.Kcp
 {
-    #region Modified by Insthync to make it work with Unity 2018 and .NET 4.0
-    public struct KcpAck
-    {
-        public uint sn;
-        public uint ts;
-    }
-
-    public struct KcpReceiveResult
-    {
-        public BufferOwner buffer;
-        public int avalidLength;
-    }
-    #endregion
-
     /// <summary>
     /// https://github.com/skywind3000/kcp/wiki/Network-Layer
     /// <para>外部buffer ----拆分拷贝----等待列表 -----移动----发送列表----拷贝----发送buffer---output</para>
@@ -74,10 +61,12 @@ namespace System.Net.Sockets.Kcp
         /// </summary>
         /// <param name="conv_"></param>
         /// <param name="callback"></param>
-        public Kcp(uint conv_, IKcpCallback callback)
+        /// <param name="rentable">可租用内存的回调</param>
+        public Kcp(uint conv_, IKcpCallback callback, IRentable rentable = null)
         {
             conv = conv_;
             callbackHandle = callback;
+            this.rentable = rentable;
 
             snd_wnd = IKCP_WND_SND;
             rcv_wnd = IKCP_WND_RCV;
@@ -91,6 +80,7 @@ namespace System.Net.Sockets.Kcp
             interval = IKCP_INTERVAL;
             ts_flush = IKCP_INTERVAL;
             ssthresh = IKCP_THRESH_INIT;
+            fastlimit = IKCP_FASTACK_LIMIT;
             dead_link = IKCP_DEADLINK;
         }
         #region Const
@@ -116,7 +106,7 @@ namespace System.Net.Sockets.Kcp
         public const int IKCP_THRESH_MIN = 2;
         public const int IKCP_PROBE_INIT = 7000;   // 7 secs to probe window size
         public const int IKCP_PROBE_LIMIT = 120000; // up to 120 secs to probe window
-
+        public const int IKCP_FASTACK_LIMIT = 5;		// max times to trigger fastack
         #endregion
 
         #region kcp members
@@ -175,6 +165,7 @@ namespace System.Net.Sockets.Kcp
         uint dead_link;
         uint incr;
         int fastresend;
+        int fastlimit;
         int nocwnd;
         int logmask;
         public int stream;
@@ -196,7 +187,7 @@ namespace System.Net.Sockets.Kcp
         /// <summary>
         /// 发送 ack 队列 
         /// </summary>
-        ConcurrentQueue<KcpAck> acklist = new ConcurrentQueue<KcpAck>();
+        ConcurrentQueue<(uint sn, uint ts)> acklist = new ConcurrentQueue<(uint sn, uint ts)>();
         /// <summary>
         /// 发送等待队列
         /// </summary>
@@ -240,29 +231,6 @@ namespace System.Net.Sockets.Kcp
             return false;
         }
 
-        // Modified by Insthync
-        // 释放未托管的资源(未托管的对象)并在以下内容中替代终结器。
-        // 将大型字段设置为 null。
-        private void Dispose_FreeCollection(IEnumerable<KcpSegment> collection)
-        {
-            if (collection == null)
-            {
-                return;
-            }
-            foreach (var item in collection)
-            {
-                try
-                {
-                    KcpSegment.FreeHGlobal(item);
-                }
-                catch (Exception)
-                {
-                    //理论上此处不会有任何异常
-                }
-            }
-        }
-
-        // Modified by Insthync
         protected virtual void Dispose(bool disposing)
         {
             try
@@ -278,9 +246,29 @@ namespace System.Net.Sockets.Kcp
                         buffer = null;
                     }
 
-                    KcpSegment segment;
+                    // 释放未托管的资源(未托管的对象)并在以下内容中替代终结器。
+                    // 将大型字段设置为 null。
+                    void FreeCollection(IEnumerable<KcpSegment> collection)
+                    {
+                        if (collection == null)
+                        {
+                            return;
+                        }
+                        foreach (var item in collection)
+                        {
+                            try
+                            {
+                                KcpSegment.FreeHGlobal(item);
+                            }
+                            catch (Exception)
+                            {
+                                //理论上此处不会有任何异常
+                            }
+                        }
+                    }
+
                     while (snd_queue != null &&
-                        (snd_queue.TryDequeue(out segment)
+                        (snd_queue.TryDequeue(out var segment)
                         || !snd_queue.IsEmpty)
                         )
                     {
@@ -297,21 +285,21 @@ namespace System.Net.Sockets.Kcp
 
                     lock (snd_bufLock)
                     {
-                        Dispose_FreeCollection(snd_buf);
+                        FreeCollection(snd_buf);
                         snd_buf?.Clear();
                         snd_buf = null;
                     }
 
                     lock (rcv_bufLock)
                     {
-                        Dispose_FreeCollection(rcv_buf);
+                        FreeCollection(rcv_buf);
                         rcv_buf?.Clear();
                         rcv_buf = null;
                     }
 
                     lock (rcv_queueLock)
                     {
-                        Dispose_FreeCollection(rcv_queue);
+                        FreeCollection(rcv_queue);
                         rcv_queue?.Clear();
                         rcv_queue = null;
                     }
@@ -353,6 +341,7 @@ namespace System.Net.Sockets.Kcp
     public partial class Kcp
     {
         IKcpCallback callbackHandle;
+        IRentable rentable;
         /// <summary>
         /// 如果外部能够提供缓冲区则使用外部缓冲区，否则new byte[]
         /// </summary>
@@ -360,7 +349,7 @@ namespace System.Net.Sockets.Kcp
         /// <returns></returns>
         internal protected BufferOwner CreateBuffer(int needSize)
         {
-            var res = callbackHandle?.RentBuffer(needSize);
+            var res = rentable?.RentBuffer(needSize);
             if (res == null)
             {
                 return new KcpInnerBuffer(needSize);
@@ -369,7 +358,7 @@ namespace System.Net.Sockets.Kcp
             {
                 if (res.Memory.Length < needSize)
                 {
-                    throw new ArgumentException($"{nameof(callbackHandle.RentBuffer)} 指定的委托不符合标准，返回的" +
+                    throw new ArgumentException($"{nameof(rentable.RentBuffer)} 指定的委托不符合标准，返回的" +
                         $"BufferOwner.Memory.Length 小于 {nameof(needSize)}");
                 }
             }
@@ -405,16 +394,22 @@ namespace System.Net.Sockets.Kcp
             }
         }
 
-        public KcpReceiveResult TryRecv()
+        /// <summary>
+        /// todo
+        /// </summary>
+        /// <param name="writer"></param>
+        /// <returns></returns>
+        public bool TryRecv(IBufferWriter<byte> writer)
+        {
+            throw new NotImplementedException();
+        }
+
+        public (BufferOwner buffer, int avalidLength) TryRecv()
         {
             if (rcv_queue.Count == 0)
             {
                 ///没有可用包
-                return new KcpReceiveResult()
-                {
-                    buffer = null,
-                    avalidLength = -1
-                };
+                return (null, -1);
             }
 
             var peekSize = -1;
@@ -428,11 +423,7 @@ namespace System.Net.Sockets.Kcp
             if (rcv_queue.Count < seq.frg + 1)
             {
                 ///没有足够的包
-                return new KcpReceiveResult()
-                {
-                    buffer = null,
-                    avalidLength = -1
-                };
+                return (null, -1);
             }
 
             lock (rcv_queueLock)
@@ -453,20 +444,12 @@ namespace System.Net.Sockets.Kcp
 
             if (peekSize <= 0)
             {
-                return new KcpReceiveResult()
-                {
-                    buffer = null,
-                    avalidLength = -2
-                };
+                return (null, -2);
             }
 
             var buffer = CreateBuffer(peekSize);
             var recvlength = UncheckRecv(buffer.Memory.Span);
-            return new KcpReceiveResult()
-            {
-                buffer = buffer,
-                avalidLength = recvlength
-            };
+            return (buffer, recvlength);
         }
     }
 
@@ -637,6 +620,16 @@ namespace System.Net.Sockets.Kcp
 
                 return (int)length;
             }
+        }
+
+        /// <summary>
+        /// todo
+        /// </summary>
+        /// <param name="sequence"></param>
+        /// <returns></returns>
+        public int Send(in ReadOnlySequence<byte> sequence)
+        {
+            throw new NotImplementedException();
         }
 
         /// <summary>
@@ -882,6 +875,19 @@ namespace System.Net.Sockets.Kcp
             Move_Rcv_buf_2_Rcv_queue();
         }
 
+
+        public int Input(in ReadOnlySequence<byte> byteSequence)
+        {
+            throw new NotImplementedException();
+            if (CheckDispose())
+            {
+                //检查释放
+                return -4;
+            }
+
+            return 0;
+        }
+
         /// <summary>
         /// when you received a low level packet (eg. UDP packet), call it
         /// </summary>
@@ -1020,11 +1026,7 @@ namespace System.Net.Sockets.Kcp
                     if (Itimediff(sn, rcv_nxt + rcv_wnd) < 0)
                     {
                         ///instead of ikcp_ack_push
-                        acklist.Enqueue(new KcpAck()
-                        {
-                            sn = sn,
-                            ts = ts
-                        });
+                        acklist.Enqueue((sn, ts));
 
                         if (Itimediff(sn, rcv_nxt) >= 0)
                         {
@@ -1162,8 +1164,7 @@ namespace System.Net.Sockets.Kcp
                     return;
                 }
 
-                KcpAck temp;
-                while (acklist.TryDequeue(out temp))
+                while (acklist.TryDequeue(out var temp))
                 {
                     if (offset + IKCP_OVERHEAD > mtu)
                     {
@@ -1255,25 +1256,24 @@ namespace System.Net.Sockets.Kcp
                 cwnd_ = Min(cwnd, cwnd_);
             }
 
-            KcpSegment newSegment;
             while (Itimediff(snd_nxt, snd_una + cwnd_) < 0)
             {
-                if (snd_queue.TryDequeue(out newSegment))
+                if (snd_queue.TryDequeue(out var newseg))
                 {
-                    newSegment.conv = conv;
-                    newSegment.cmd = IKCP_CMD_PUSH;
-                    newSegment.wnd = wnd_;
-                    newSegment.ts = current_;
-                    newSegment.sn = snd_nxt;
+                    newseg.conv = conv;
+                    newseg.cmd = IKCP_CMD_PUSH;
+                    newseg.wnd = wnd_;
+                    newseg.ts = current_;
+                    newseg.sn = snd_nxt;
                     snd_nxt++;
-                    newSegment.una = rcv_nxt;
-                    newSegment.resendts = current_;
-                    newSegment.rto = rx_rto;
-                    newSegment.fastack = 0;
-                    newSegment.xmit = 0;
+                    newseg.una = rcv_nxt;
+                    newseg.resendts = current_;
+                    newseg.rto = rx_rto;
+                    newseg.fastack = 0;
+                    newseg.xmit = 0;
                     lock (snd_bufLock)
                     {
-                        snd_buf.AddLast(newSegment);
+                        snd_buf.AddLast(newseg);
                     }
                 }
                 else
@@ -1324,11 +1324,15 @@ namespace System.Net.Sockets.Kcp
                     }
                     else if (segment.fastack >= resent)
                     {
-                        needsend = true;
-                        segment.xmit++;
-                        segment.fastack = 0;
-                        segment.resendts = current_ + segment.rto;
-                        change++;
+                        if (segment.xmit <= fastlimit
+                            || fastlimit <= 0)
+                        {
+                            needsend = true;
+                            segment.xmit++;
+                            segment.fastack = 0;
+                            segment.resendts = current_ + segment.rto;
+                            change++;
+                        }
                     }
 
                     if (needsend)
@@ -1407,7 +1411,7 @@ namespace System.Net.Sockets.Kcp
         /// ikcp_check when to call it again (without ikcp_input/_send calling).
         /// </summary>
         /// <param name="time">DateTime.UtcNow</param>
-        public void Update(DateTime time)
+        public void Update(in DateTime time)
         {
             if (CheckDispose())
             {
@@ -1458,6 +1462,12 @@ namespace System.Net.Sockets.Kcp
         /// <returns></returns>
         public DateTime Check(DateTime time)
         {
+            if (CheckDispose())
+            {
+                //检查释放
+                return default;
+            }
+
             if (updated == 0)
             {
                 return time;
@@ -1621,9 +1631,19 @@ namespace System.Net.Sockets.Kcp
     {
         private static readonly DateTime utc_time = new DateTime(1970, 1, 1);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static uint ConvertTime(this DateTime time)
+        public static uint ConvertTime(this in DateTime time)
         {
             return (uint)(Convert.ToInt64(time.Subtract(utc_time).TotalMilliseconds) & 0xffffffff);
         }
     }
 }
+
+
+
+
+
+
+
+
+
+
