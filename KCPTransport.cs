@@ -1,9 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Buffers;
-using System.Net;
-using LiteNetLib;
+﻿using LiteNetLib;
 using LiteNetLib.Utils;
 using LiteNetLibManager;
 
@@ -27,7 +22,9 @@ namespace KCPTransportLayer
             if (clientPeer.eventQueue.Count == 0)
                 return false;
 
-            eventData = clientPeer.eventQueue.Dequeue();
+            if (!clientPeer.eventQueue.TryDequeue(out eventData))
+                return false;
+
             switch (eventData.type)
             {
                 case ENetworkEvent.DisconnectEvent:
@@ -97,9 +94,7 @@ namespace KCPTransportLayer
             if (serverPeer.eventQueue.Count == 0)
                 return false;
 
-            eventData = serverPeer.eventQueue.Dequeue();
-
-            return true;
+            return serverPeer.eventQueue.TryDequeue(out eventData);
         }
 
         public bool ServerSend(long connectionId, DeliveryMethod deliveryMethod, NetDataWriter writer)

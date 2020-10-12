@@ -1,12 +1,10 @@
 ﻿using LiteNetLib.Utils;
 using LiteNetLibManager;
 using System;
-using System.Buffers;
-using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
-using System.Net.Sockets.Kcp;
 using System.Threading;
 using UnityEngine;
 
@@ -30,18 +28,18 @@ namespace KCPTransportLayer
         private Thread acceptThread;
         private bool updating;
         private bool accepting;
-        public Queue<TransportEventData> eventQueue { get; private set; }
-        public Dictionary<long, Socket> connections { get; private set; }
-        public Dictionary<long, KCPHandle> kcpHandles { get; private set; }
+        public ConcurrentQueue<TransportEventData> eventQueue { get; private set; }
+        public ConcurrentDictionary<long, Socket> connections { get; private set; }
+        public ConcurrentDictionary<long, KCPHandle> kcpHandles { get; private set; }
 
         public KCPPeer(string tag, KCPSetting clientSetting, KCPSetting serverSetting)
         {
             this.tag = tag;
             this.clientSetting = clientSetting;
             this.serverSetting = serverSetting;
-            eventQueue = new Queue<TransportEventData>();
-            connections = new Dictionary<long, Socket>();
-            kcpHandles = new Dictionary<long, KCPHandle>();
+            eventQueue = new ConcurrentQueue<TransportEventData>();
+            connections = new ConcurrentDictionary<long, Socket>();
+            kcpHandles = new ConcurrentDictionary<long, KCPHandle>();
         }
 
         private KCPHandle CreateKcp(uint connectionId, KCPSetting setting)
@@ -88,7 +86,8 @@ namespace KCPTransportLayer
                 acceptThread = null;
             }
 
-            eventQueue.Clear();
+            while (eventQueue.Count > 0)
+                eventQueue.TryDequeue(out _);
             connections.Clear();
             kcpHandles.Clear();
         }
@@ -96,7 +95,7 @@ namespace KCPTransportLayer
         public void Disconnect(long connectionId)
         {
             Socket disconnectSocket;
-            if (connections.TryGetValue(connectionId, out disconnectSocket))
+            if (connections.TryRemove(connectionId, out disconnectSocket))
             {
                 miscWriter.Reset();
                 miscWriter.Put((byte)ENetworkEvent.DisconnectEvent);
@@ -163,7 +162,6 @@ namespace KCPTransportLayer
                 Socket newClientSocket;
                 uint newConnectionId;
                 KCPHandle newKcpHandle;
-                TransportEventData eventData;
                 SocketError socketError;
                 while (accepting)
                 {
@@ -175,15 +173,23 @@ namespace KCPTransportLayer
                     newKcpHandle = CreateKcp(newConnectionId, serverSetting);
 
                     // Store kcp, socket to dictionaries
-                    connections[newConnectionId] = newClientSocket;
-                    kcpHandles[newConnectionId] = newKcpHandle;
+                    if (!connections.TryAdd(newConnectionId, newClientSocket) ||
+                        !kcpHandles.TryAdd(newConnectionId, newKcpHandle))
+                    {
+                        connections.TryRemove(newConnectionId, out _);
+                        kcpHandles.TryRemove(newConnectionId, out _);
+                        newClientSocket.Close();
+                        newClientSocket.Dispose();
+                        newKcpHandle.Dispose();
+                        continue;
+                    }
 
                     // Store network event to queue
-                    eventData = default(TransportEventData);
-                    eventData.type = ENetworkEvent.ConnectEvent;
-                    eventData.connectionId = newConnectionId;
-                    eventData.endPoint = (IPEndPoint)newClientSocket.RemoteEndPoint;
-                    eventQueue.Enqueue(eventData);
+                    eventQueue.Enqueue(new TransportEventData()
+                    {
+                        type = ENetworkEvent.ConnectEvent,
+                        connectionId = newConnectionId,
+                    });
 
                     // Prepare connected message to send to client
                     acceptWriter.Reset();
@@ -200,8 +206,6 @@ namespace KCPTransportLayer
                         // Error occurs
                         HandleError(newClientSocket.RemoteEndPoint, socketError);
                     }
-
-                    Thread.Sleep(20);
                 }
             }
             catch (ThreadAbortException)
@@ -222,7 +226,6 @@ namespace KCPTransportLayer
                 DateTime time;
                 List<KCPHandle> updatingKcps = new List<KCPHandle>();
                 List<long> connectionIds = new List<long>();
-                TransportEventData eventData;
                 while (updating)
                 {
                     time = DateTime.UtcNow;
@@ -235,7 +238,6 @@ namespace KCPTransportLayer
                             updatingKcp.kcp.Update(time);
                         }
                     }
-                    Thread.Sleep(20);
                     // Check disconnected connections
                     if (connections != null && connections.Count > 0)
                     {
@@ -249,16 +251,16 @@ namespace KCPTransportLayer
                             connections[connectionId].Close();
                             connections[connectionId].Dispose();
                             kcpHandles[connectionId].Dispose();
-                            connections.Remove(connectionId);
-                            kcpHandles.Remove(connectionId);
+                            connections.TryRemove(connectionId, out _);
+                            kcpHandles.TryRemove(connectionId, out _);
                             // This event must enqueue at server only
-                            eventData = default(TransportEventData);
-                            eventData.type = ENetworkEvent.DisconnectEvent;
-                            eventData.connectionId = connectionId;
-                            eventQueue.Enqueue(eventData);
+                            eventQueue.Enqueue(new TransportEventData()
+                            {
+                                type = ENetworkEvent.DisconnectEvent,
+                                connectionId = connectionId,
+                            });
                         }
                     }
-                    Thread.Sleep(20);
                 }
             }
             catch (ThreadAbortException)
@@ -339,7 +341,7 @@ namespace KCPTransportLayer
             // Cannot connect again if connected
             if (connectSocket.Connected)
                 return false;
-            
+
             connectSocket.Connect(remoteEndPoint);
             return connectSocket.Connected;
         }
@@ -375,7 +377,7 @@ namespace KCPTransportLayer
 
         private void RecvConnection()
         {
-            if (connectSocket == null || 
+            if (connectSocket == null ||
                 (!connectSocket.IsBound && !connectSocket.Connected))
                 return;
 
@@ -424,7 +426,7 @@ namespace KCPTransportLayer
             recvReader.SetSource(recvBuffer, 0, recvLength);
             uint connectionId = recvReader.GetUInt();
             // Have to find which kcp send this data, then set its input
-            KCPHandle kcpHandle = null;
+            KCPHandle kcpHandle;
             if (kcpHandles.TryGetValue(connectionId, out kcpHandle))
             {
                 kcpHandle.remoteEndPoint = endPoint;
@@ -486,11 +488,12 @@ namespace KCPTransportLayer
                     break;
                 default:
                     // Store error event to queue
-                    TransportEventData eventData = default(TransportEventData);
-                    eventData.type = ENetworkEvent.ErrorEvent;
-                    eventData.endPoint = (IPEndPoint)endPoint;
-                    eventData.socketError = socketErrorCode;
-                    eventQueue.Enqueue(eventData);
+                    eventQueue.Enqueue(new TransportEventData()
+                    {
+                        type = ENetworkEvent.ErrorEvent,
+                        endPoint = (IPEndPoint)endPoint,
+                        socketError = socketErrorCode,
+                    });
                     break;
             }
         }
