@@ -10,7 +10,25 @@ namespace KCPTransportLayer
         public KCPSetting serverSetting;
         private KCPPeer clientPeer;
         private KCPPeer serverPeer;
-        
+        public bool IsClientStarted
+        {
+            get { return clientPeer != null; }
+        }
+        public bool IsServerStarted
+        {
+            get { return serverPeer != null; }
+        }
+        public int ServerPeersCount
+        {
+            get
+            {
+                if (serverPeer == null)
+                    return 0;
+                return serverPeer.kcpHandles.Count;
+            }
+        }
+        public int ServerMaxConnections { get; private set; }
+
         public bool ClientReceive(out TransportEventData eventData)
         {
             eventData = default(TransportEventData);
@@ -42,7 +60,7 @@ namespace KCPTransportLayer
 
         public bool ClientSend(DeliveryMethod deliveryMethod, NetDataWriter writer)
         {
-            if (IsClientStarted())
+            if (IsClientStarted)
             {
                 clientPeer.SendData(writer.Data, writer.Length);
                 return true;
@@ -56,26 +74,9 @@ namespace KCPTransportLayer
             StopServer();
         }
 
-        public int GetServerPeersCount()
-        {
-            if (serverPeer == null)
-                return 0;
-            return serverPeer.kcpHandles.Count;
-        }
-
-        public bool IsClientStarted()
-        {
-            return clientPeer != null;
-        }
-
-        public bool IsServerStarted()
-        {
-            return serverPeer != null;
-        }
-
         public bool ServerDisconnect(long connectionId)
         {
-            if (IsServerStarted() && serverPeer.kcpHandles.ContainsKey(connectionId))
+            if (IsServerStarted && serverPeer.kcpHandles.ContainsKey(connectionId))
             {
                 serverPeer.Disconnect(connectionId);
                 return true;
@@ -99,7 +100,7 @@ namespace KCPTransportLayer
 
         public bool ServerSend(long connectionId, DeliveryMethod deliveryMethod, NetDataWriter writer)
         {
-            if (IsServerStarted())
+            if (IsServerStarted)
             {
                 serverPeer.SendData(connectionId, writer.Data, writer.Length);
                 return true;
@@ -116,6 +117,7 @@ namespace KCPTransportLayer
 
         public bool StartServer(int port, int maxConnections)
         {
+            ServerMaxConnections = maxConnections;
             serverPeer = new KCPPeer("SERVER", clientSetting, serverSetting);
             serverPeer.Start(port);
             return true;
