@@ -58,7 +58,7 @@ namespace KCPTransportLayer
             return true;
         }
 
-        public bool ClientSend(DeliveryMethod deliveryMethod, NetDataWriter writer)
+        public bool ClientSend(byte dataChannel, DeliveryMethod deliveryMethod, NetDataWriter writer)
         {
             if (IsClientStarted)
             {
@@ -98,7 +98,7 @@ namespace KCPTransportLayer
             return serverPeer.eventQueue.TryDequeue(out eventData);
         }
 
-        public bool ServerSend(long connectionId, DeliveryMethod deliveryMethod, NetDataWriter writer)
+        public bool ServerSend(long connectionId, byte dataChannel, DeliveryMethod deliveryMethod, NetDataWriter writer)
         {
             if (IsServerStarted)
             {
