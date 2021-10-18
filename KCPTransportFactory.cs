@@ -4,7 +4,6 @@ namespace KCPTransportLayer
 {
     public class KCPTransportFactory : BaseTransportFactory
     {
-        public override bool CanUseWithWebGL { get { return false; } }
         
         public KCPSetting clientSetting = new KCPSetting()
         {
