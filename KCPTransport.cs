@@ -58,11 +58,11 @@ namespace KCPTransportLayer
             return true;
         }
 
-        public bool ClientSend(byte dataChannel, DeliveryMethod deliveryMethod, byte[] data)
+        public bool ClientSend(byte dataChannel, DeliveryMethod deliveryMethod, NetDataWriter writer)
         {
             if (IsClientStarted)
             {
-                clientPeer.SendData(data, data.Length);
+                clientPeer.SendData(writer.Data, writer.Length);
                 return true;
             }
             return false;
@@ -98,11 +98,11 @@ namespace KCPTransportLayer
             return serverPeer.eventQueue.TryDequeue(out eventData);
         }
 
-        public bool ServerSend(long connectionId, byte dataChannel, DeliveryMethod deliveryMethod, byte[] data)
+        public bool ServerSend(long connectionId, byte dataChannel, DeliveryMethod deliveryMethod, NetDataWriter writer)
         {
             if (IsServerStarted)
             {
-                serverPeer.SendData(connectionId, data, data.Length);
+                serverPeer.SendData(connectionId, writer.Data, writer.Length);
                 return true;
             }
             return false;

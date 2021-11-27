@@ -68,7 +68,7 @@ public class KCPTestTwoClients : MonoBehaviour
             Debug.Log("Server1 receive " + data + " from " + tempEventData.endPoint);
             writer.Reset();
             writer.Put(data.ToLower());
-            server1.ServerSend(tempEventData.connectionId, 0, LiteNetLib.DeliveryMethod.ReliableOrdered, writer.Data);
+            server1.ServerSend(tempEventData.connectionId, 0, LiteNetLib.DeliveryMethod.ReliableOrdered, writer);
         }
         while (client1.ClientReceive(out tempEventData))
         {
@@ -83,10 +83,10 @@ public class KCPTestTwoClients : MonoBehaviour
 
         writer.Reset();
         writer.Put("`SEND FROM CLIENT1 = " + (++clientSendCount1) + "`");
-        client1.ClientSend(0, LiteNetLib.DeliveryMethod.ReliableOrdered, writer.Data);
+        client1.ClientSend(0, LiteNetLib.DeliveryMethod.ReliableOrdered, writer);
 
         writer.Reset();
         writer.Put("`SEND FROM CLIENT2 = " + (++clientSendCount2) + "`");
-        client2.ClientSend(0, LiteNetLib.DeliveryMethod.ReliableOrdered, writer.Data);
+        client2.ClientSend(0, LiteNetLib.DeliveryMethod.ReliableOrdered, writer);
     }
 }
