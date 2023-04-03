@@ -1,6 +1,8 @@
 {
     "name": "KCPTransport",
+    "rootNamespace": "",
     "references": [
+        "GUID:31f70a8aefd57b049ae8e786e7ddac5f",
         "GUID:213773efbee1c874e8264de949c544d2"
     ],
     "includePlatforms": [],
