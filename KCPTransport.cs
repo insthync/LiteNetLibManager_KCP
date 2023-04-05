@@ -8,39 +8,44 @@ namespace KCPTransportLayer
     {
         public KCPSetting clientSetting;
         public KCPSetting serverSetting;
-        private KCPPeer clientPeer;
-        private KCPPeer serverPeer;
+        private KCPPeer _clientPeer;
+        private KCPPeer _serverPeer;
         public bool IsClientStarted
         {
-            get { return clientPeer != null; }
+            get { return _clientPeer != null; }
         }
         public bool IsServerStarted
         {
-            get { return serverPeer != null; }
+            get { return _serverPeer != null; }
         }
         public int ServerPeersCount
         {
             get
             {
-                if (serverPeer == null)
+                if (_serverPeer == null)
                     return 0;
-                return serverPeer.kcpHandles.Count;
+                return _serverPeer.kcpHandles.Count;
             }
         }
         public int ServerMaxConnections { get; private set; }
 
+        public bool HasImplementedPing
+        {
+            get { return false; }
+        }
+
         public bool ClientReceive(out TransportEventData eventData)
         {
             eventData = default(TransportEventData);
-            if (clientPeer == null)
+            if (_clientPeer == null)
                 return false;
 
-            clientPeer.Recv();
+            _clientPeer.Recv();
 
-            if (clientPeer.eventQueue.Count == 0)
+            if (_clientPeer.eventQueue.Count == 0)
                 return false;
 
-            if (!clientPeer.eventQueue.TryDequeue(out eventData))
+            if (!_clientPeer.eventQueue.TryDequeue(out eventData))
                 return false;
 
             switch (eventData.type)
@@ -62,7 +67,7 @@ namespace KCPTransportLayer
         {
             if (IsClientStarted)
             {
-                clientPeer.SendData(writer.Data, writer.Length);
+                _clientPeer.SendData(writer.Data, writer.Length);
                 return true;
             }
             return false;
@@ -74,11 +79,21 @@ namespace KCPTransportLayer
             StopServer();
         }
 
+        public long GetClientRtt()
+        {
+            throw new System.NotImplementedException();
+        }
+
+        public long GetServerRtt(long connectionId)
+        {
+            throw new System.NotImplementedException();
+        }
+
         public bool ServerDisconnect(long connectionId)
         {
-            if (IsServerStarted && serverPeer.kcpHandles.ContainsKey(connectionId))
+            if (IsServerStarted && _serverPeer.kcpHandles.ContainsKey(connectionId))
             {
-                serverPeer.Disconnect(connectionId);
+                _serverPeer.Disconnect(connectionId);
                 return true;
             }
             return false;
@@ -87,22 +102,22 @@ namespace KCPTransportLayer
         public bool ServerReceive(out TransportEventData eventData)
         {
             eventData = default(TransportEventData);
-            if (serverPeer == null)
+            if (_serverPeer == null)
                 return false;
 
-            serverPeer.Recv();
+            _serverPeer.Recv();
             
-            if (serverPeer.eventQueue.Count == 0)
+            if (_serverPeer.eventQueue.Count == 0)
                 return false;
 
-            return serverPeer.eventQueue.TryDequeue(out eventData);
+            return _serverPeer.eventQueue.TryDequeue(out eventData);
         }
 
         public bool ServerSend(long connectionId, byte dataChannel, DeliveryMethod deliveryMethod, NetDataWriter writer)
         {
             if (IsServerStarted)
             {
-                serverPeer.SendData(connectionId, writer.Data, writer.Length);
+                _serverPeer.SendData(connectionId, writer.Data, writer.Length);
                 return true;
             }
             return false;
@@ -110,34 +125,34 @@ namespace KCPTransportLayer
 
         public bool StartClient(string address, int port)
         {
-            clientPeer = new KCPPeer("CLIENT", clientSetting, serverSetting);
-            clientPeer.Start();
-            return clientPeer.Connect(address, port);
+            _clientPeer = new KCPPeer("CLIENT", clientSetting, serverSetting);
+            _clientPeer.Start();
+            return _clientPeer.Connect(address, port);
         }
 
         public bool StartServer(int port, int maxConnections)
         {
             ServerMaxConnections = maxConnections;
-            serverPeer = new KCPPeer("SERVER", clientSetting, serverSetting);
-            serverPeer.Start(port);
+            _serverPeer = new KCPPeer("SERVER", clientSetting, serverSetting);
+            _serverPeer.Start(port);
             return true;
         }
 
         public void StopClient()
         {
-            if (clientPeer != null)
+            if (_clientPeer != null)
             {
-                clientPeer.Stop();
-                clientPeer = null;
+                _clientPeer.Stop();
+                _clientPeer = null;
             }
         }
 
         public void StopServer()
         {
-            if (serverPeer != null)
+            if (_serverPeer != null)
             {
-                serverPeer.Stop();
-                serverPeer = null;
+                _serverPeer.Stop();
+                _serverPeer = null;
             }
         }
     }
